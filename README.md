@@ -1,2 +1,6 @@
 # Hotel-App
-Pet-Project for Hotel Managing
+Пет-проект для работы с отелями. 
+Пишется в рамках прохождения курса по Python BackEnd-разработке.
+
+На этом пока всё :)
+
