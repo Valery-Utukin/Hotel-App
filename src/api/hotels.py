@@ -1,48 +1,59 @@
 import random
-from fastapi import Query, HTTPException, APIRouter
+from fastapi import Query, Body, HTTPException, APIRouter
 
+from sqlalchemy import insert, select
+
+from src.database import async_session
+from src.models.hotels import Hotels
 from src.api.dependencies import PaginationDep
 from src.schemas.hotels import Hotel, HotelPatch
 
 
 router = APIRouter(prefix="/hotels", tags=["Hotels"])
 
-hotel_names = [
-    "Hilton", "Moscow Resort", "Mt.Olympus", "Hiawatha Resort",
-    "Hotel1", "Hotel2", "Hotel3", "Hotel4",
-]
-hotels = [
-    {"id": i + 1, "title": hotel_names[i], "cost$": random.randint(1, 9) * 100} for i in range(len(hotel_names))
-]
-
 
 @router.get("")
 async def get_hotels(
         pagination: PaginationDep,
-        id: int | None = Query(None, description="Айдишка Отеля"),
         title: str | None = Query(None, description="Название Отеля"),
+        location: str | None = Query(None, description="Место расположения Отеля"),
 ):
-    hotels_ = []
+    per_page = pagination.per_page or 5
+    async with async_session() as session:
+        query = select(Hotels)
+        if title:
+            query = query.where(Hotels.title.ilike(f"%{title}%"))
+        if location:
+            query = query.where(Hotels.location.ilike(f"%{location}%"))
 
-    # Фильтруем все отели по id и title
-    for hotel in hotels:
-        if id and hotel["id"] != id:
-            continue
-        if title and hotel["title"] != title:
-            continue
-        hotels_.append(hotel)
+        query = (
+            query
+            .limit(per_page)
+            .offset(per_page * (pagination.page - 1))
+        )
 
-    if pagination.page and pagination.per_page:
-        return hotels_[pagination.per_page * (pagination.page-1):][:pagination.per_page]
-    return hotels_
+        # Эта штука позволяет распечатать непосредственный запрос, который отправит
+        # SQLAlchemy в БД, с подставленными туда значениями.
+        # print(query.compile(compile_kwargs={"literal_binds": True}))
+
+        result = await session.execute(query)
+
+        hotels = result.scalars().all()
+
+        return hotels
 
 
 @router.post("")
 async def create_hotel(hotel_data: Hotel):
-    global hotels
-    hotels.append(
-        {"id": hotels[-1]["id"] + 1, "title": hotel_data.title, "cost$": hotel_data.cost}
-    )
+    async with async_session() as session:
+        add_hotel_stmt = insert(Hotels).values(**hotel_data.model_dump())
+
+        # Эта штука позволяет распечатать непосредственный запрос, который отправит
+        # SQLAlchemy в БД, с подставленными туда значениями.
+        # print(add_hotel_stmt.compile(compile_kwargs={"literal_binds": True}))
+
+        await session.execute(add_hotel_stmt)
+        await session.commit()
     return {"success": True}
 
 
