@@ -3,7 +3,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from src.database import BaseOrm
 
 
-class Hotels(BaseOrm):
+class HotelsORM(BaseOrm):
     __tablename__ = 'hotels'
 
     id: Mapped[int] = mapped_column(primary_key=True)

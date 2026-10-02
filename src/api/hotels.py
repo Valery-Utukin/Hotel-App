@@ -1,15 +1,26 @@
-import random
 from fastapi import Query, Body, HTTPException, APIRouter
 
-from sqlalchemy import insert, select
-
 from src.database import async_session
-from src.models.hotels import Hotels
 from src.api.dependencies import PaginationDep
 from src.schemas.hotels import Hotel, HotelPatch
+from src.repositories.hotels import HotelRepository
 
 
 router = APIRouter(prefix="/hotels", tags=["Hotels"])
+
+
+@router.get("/{hotel_id}")
+async def get_hotel_by_id(hotel_id: int):
+    """
+    Ручка по получение конкретного отеля по его id. Ничего необычного.\n
+    :param hotel_id: Айдишка нужного отеля.\n
+    :return: JSON'чик с данными по отелю. Либо, если не нашли его, возвращает 404
+    """
+    async with async_session() as session:
+        hotel = await HotelRepository(session).get_one_or_none(id=hotel_id)
+        if hotel:
+            return {"success": True, "data": hotel}
+        return HTTPException(status_code=404)
 
 
 @router.get("")
@@ -18,56 +29,52 @@ async def get_hotels(
         title: str | None = Query(None, description="Название Отеля"),
         location: str | None = Query(None, description="Место расположения Отеля"),
 ):
+    """
+    <b>Ручка на получение множества отелей по заданному названию или локации. Название или локация
+    не обязательно должны быть точными. Они могут содержать лишь некоторые слова. Вернутся те сущности,
+    которые содержат эти слова.</b>\n
+    <b>:param pagination:</b> Определяет пагинацию для отелей. По сколько на странице (per_page)
+    и какой номер страницы (page). Её типы и значения по-умолчанию задаются через dependency.\n
+    <b>:param title:</b> Название Отеля\n
+    <b>:param location:</b> Название локации Отеля (город, страна).\n
+    <b>:return:</b> JSON'чик с данными по отелям. Если ничего не нашли, то вернется пустой список.
+    """
     per_page = pagination.per_page or 5
     async with async_session() as session:
-        query = select(Hotels)
-        if title:
-            query = query.where(Hotels.title.ilike(f"%{title}%"))
-        if location:
-            query = query.where(Hotels.location.ilike(f"%{location}%"))
-
-        query = (
-            query
-            .limit(per_page)
-            .offset(per_page * (pagination.page - 1))
+        return await HotelRepository(session).get_all(
+            location=location,
+            title=title,
+            limit=per_page,
+            offset=pagination.per_page * (pagination.page - 1)
         )
-
-        # Эта штука позволяет распечатать непосредственный запрос, который отправит
-        # SQLAlchemy в БД, с подставленными туда значениями.
-        # print(query.compile(compile_kwargs={"literal_binds": True}))
-
-        result = await session.execute(query)
-
-        hotels = result.scalars().all()
-
-        return hotels
 
 
 @router.post("")
 async def create_hotel(hotel_data: Hotel):
+    """
+    <b>Ручка для создания новых отелей. Все параметры обязательны. Стандартный метод POST.</b>\n
+    <b>:param hotel_data:</b> Данные об отеле: название (title) и местоположение (location).
+    В качестве локации указывается город и страна (для простоты).\n
+    <b>:return:</b> JSON'чик с данными по созданному отелю.
+    """
     async with async_session() as session:
-        add_hotel_stmt = insert(Hotels).values(**hotel_data.model_dump())
-
-        # Эта штука позволяет распечатать непосредственный запрос, который отправит
-        # SQLAlchemy в БД, с подставленными туда значениями.
-        # print(add_hotel_stmt.compile(compile_kwargs={"literal_binds": True}))
-
-        await session.execute(add_hotel_stmt)
+        result = await HotelRepository(session).add(data=hotel_data)
         await session.commit()
-    return {"success": True}
+    return {"success": True, "created_data": result}
 
 
 @router.put("/{hotel_id}")
 async def update_hotel_put(hotel_id: int, hotel_data: Hotel):
-    global hotels
-    for hotel in hotels:
-        if hotel["id"] == hotel_id:
-            hotel["title"] = hotel_data.title
-            hotel["cost$"] = hotel_data.cost
-            break
-    else:
-        raise HTTPException(status_code=404)
-    return {"success": True}
+    async with async_session() as session:
+        hotel = await HotelRepository(session=session).get_one_or_none(id=hotel_id)
+
+        # Если нашелся отель с таким id, то вернем его
+        if hotel:
+            updated_hotel = await HotelRepository(session=session).update(data=hotel_data, id=hotel_id)
+            await session.commit()
+            return {"success": True, "updated_data": updated_hotel}
+        # В противном случае вернем 404
+        return HTTPException(status_code=404)
 
 
 @router.patch("/{hotel_id}")
@@ -75,35 +82,41 @@ async def update_hotel_patch(
         hotel_id: int,
         hotel_data: HotelPatch,
 ):
-    # Находим отель перед тем как патчить его
-    global hotels
-    hotel_to_patch = None
-    for hotel in hotels:
-        if hotel["id"] == hotel_id:
-            hotel_to_patch = hotel
-            break
-    else:
-        raise HTTPException(status_code=404)
+    async with async_session() as session:
+        hotel = await HotelRepository(session=session).get_one_or_none(id=hotel_id)
 
-    # Если дошли сюда, значит отель нашёлся по id и его можно патчить
-    if hotel_data.title is not None:
-        hotel_to_patch["title"] = hotel_data.title
-    if hotel_data.cost is not None:
-        hotel_to_patch["cost$"] = hotel_data.cost
-
-    return {"success": True}
+        # Если нашелся отель с таким id, то работаем с ним
+        if hotel:
+            updated_hotel = await HotelRepository(session=session).update(
+                data=hotel_data,
+                is_patch=True,
+                id=hotel_id
+            )
+            await session.commit()
+            return {"success": True, "updated_data": updated_hotel}
+        # В противном случае вернем 404
+        return HTTPException(status_code=404)
 
 
 @router.delete("/{hotel_id}")
 async def delete_hotel(
         hotel_id: int,
 ):
-    global hotels
-    for hotel in hotels:
-        if hotel["id"] == hotel_id:
-            hotels.remove(hotel)
-            break
-    else:
-        raise HTTPException(status_code=404)
+    """
+    <b>Ручка на удаление отеля. Удаляем по id. Всё просто.</b>\n
+    <b>:param hotel_id:</b> Айдишка отеля\n
+    <b>:return:</b> Если отель удачно удалился, то возвращает JSON'чик с данными по удаленному отелю.\n
+    Если отеля с таким id не найдено, то возвращает HTTPException 404.
+    """
+    async with async_session() as session:
+        hotel = await HotelRepository(session=session).get_one_or_none(id=hotel_id)
 
-    return {"success": True}
+        # Если нашелся отель с таким id, то работаем с ним
+        if hotel:
+            result = await HotelRepository(session).delete(id=hotel_id)
+            await session.commit()
+            return {"success": True, "deleted data": result}
+        # В противном случае вернем 404
+        return HTTPException(status_code=404)
+
+
