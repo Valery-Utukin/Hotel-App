@@ -2,7 +2,7 @@ from fastapi import Query, Body, HTTPException, APIRouter
 
 from src.database import async_session
 from src.api.dependencies import PaginationDep
-from src.schemas.hotels import Hotel, HotelPatch
+from src.schemas.hotels import Hotel, HotelAdd, HotelPatch
 from src.repositories.hotels import HotelRepository
 
 
@@ -50,7 +50,7 @@ async def get_hotels(
 
 
 @router.post("")
-async def create_hotel(hotel_data: Hotel):
+async def create_hotel(hotel_data: HotelAdd):
     """
     <b>Ручка для создания новых отелей. Все параметры обязательны. Стандартный метод POST.</b>\n
     <b>:param hotel_data:</b> Данные об отеле: название (title) и местоположение (location).
@@ -64,7 +64,7 @@ async def create_hotel(hotel_data: Hotel):
 
 
 @router.put("/{hotel_id}")
-async def update_hotel_put(hotel_id: int, hotel_data: Hotel):
+async def update_hotel_put(hotel_id: int, hotel_data: HotelAdd):
     async with async_session() as session:
         hotel = await HotelRepository(session=session).get_one_or_none(id=hotel_id)
 
