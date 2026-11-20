@@ -66,4 +66,7 @@ class BaseRepository:
         stmt = delete(self.model).filter_by(**filter_by).returning(self.model)
         result = await self.session.execute(stmt)
 
-        return result.scalars().one_or_none()
+        model = result.scalars().one_or_none()
+        if model is None:
+            return None
+        return self.schema.model_validate(model, from_attributes=True)

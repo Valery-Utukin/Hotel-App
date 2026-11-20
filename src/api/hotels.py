@@ -7,6 +7,10 @@ from src.repositories.hotels import HotelRepository
 
 
 router = APIRouter(prefix="/hotels", tags=["Hotels"])
+# router.include_router(
+#     rooms_router,
+#     prefix="/{hotel_id}",
+# )
 
 
 @router.get("/{hotel_id}")
