@@ -4,7 +4,7 @@ from typing import Annotated
 from src.database import async_session
 from src.schemas.rooms import RoomRequestAdd, RoomAdd, RoomPatch
 from src.repositories.rooms import RoomRepository
-from src.api.dependencies import HotelAndRoomDep, PaginationDep
+from src.api.dependencies import HotelAndRoomDep, PaginationDep, DBDep
 
 
 
@@ -14,6 +14,7 @@ router = APIRouter(prefix="/hotels/{hotel_id}/rooms", tags=["Номера"])
 @router.get("")
 async def get_rooms(
         pagination: PaginationDep,
+        db: DBDep,
         hotel_id: Annotated[int, Path(gt=0)],
         title: str | None = Query(None, description="Название Номера"),
         min_price: int | None = Query(None, ge=0, description="Минимальная цена"),
@@ -33,39 +34,38 @@ async def get_rooms(
     :param max_quantity: Максимальное кол-во номеров в наличии\n
     :return: JSON'чик с данными по номерам. Если ничего не нашли, то вернется пустой список.
     """
-    per_page = pagination.per_page or 5
-    async with async_session() as session:
-        return await RoomRepository(session).get_all(
-            hotel_id=hotel_id,
-            title=title,
-            min_price=min_price,
-            max_price=max_price,
-            min_quantity=min_quantity,
-            max_quantity=max_quantity,
-            limit=per_page,
-            offset=pagination.per_page * (pagination.page - 1)
-        )
+    return await db.rooms.get_all(
+        hotel_id=hotel_id,
+        title=title,
+        min_price=min_price,
+        max_price=max_price,
+        min_quantity=min_quantity,
+        max_quantity=max_quantity,
+        limit=pagination.per_page,
+        offset=pagination.per_page * (pagination.page - 1)
+    )
 
 
 @router.get("/{room_id}")
 async def get_room_by_id(
+        db: DBDep,
         hotel_and_room_id: HotelAndRoomDep,
 ):
     """
     Получить номер по его id и id отеля, в котором этот номер находится.\n
     :return: JSON с информацией о номере\n
     """
-    async with async_session() as session:
-        room = await RoomRepository(session).get_one_or_none(
-            id=hotel_and_room_id.room_id,
-            hotel_id=hotel_and_room_id.hotel_id,
-        )
+    room = await db.rooms.get_one_or_none(
+        id=hotel_and_room_id.room_id,
+        hotel_id=hotel_and_room_id.hotel_id,
+    )
     return room
 
 
 @router.post("/")
 async def create_room(
         # Тут не используется HotelAndRoomDep, т.к. id комнаты ещё не известен.
+        db: DBDep,
         room_data: RoomRequestAdd,
         hotel_id: Annotated[int, Path(gt=0)],
 ):
@@ -82,72 +82,88 @@ async def create_room(
         **room_data.model_dump(),
     )
 
-    async with async_session() as session:
-        result = await RoomRepository(session).add(data=room_to_add)
-        await session.commit()
+    result = await db.rooms.add(data=room_to_add)
+    await db.commit()
     return {"success": True, "created_data": result}
 
 
 @router.put("/{room_id}")
 async def update_room_put(
+        db: DBDep,
         hotel_and_room_id: HotelAndRoomDep,
         room_data: RoomRequestAdd,
 ):
-    async with async_session() as session:
-        room = await RoomRepository(session).get_one_or_none(
-            id=hotel_and_room_id.room_id,
-            hotel_id=hotel_and_room_id.hotel_id,
-        )
+    """
+    Обновление данных о номере. Все поля обязательны (PUT)!
+    :param hotel_and_room_id:
+    :param room_data:
+    :return:
+    """
+    room = await db.rooms.get_one_or_none(
+        id=hotel_and_room_id.room_id,
+        hotel_id=hotel_and_room_id.hotel_id,
+    )
 
-        if room:
-            updated_room = await RoomRepository(session).update(
-                data=room_data,
-                id=room.id,
-            )
-            await session.commit()
-            return {"success": True, "updated_data": updated_room}
-        else:
-            raise HTTPException(status_code=404, detail="Номер в отеле не найден")
+    if room:
+        updated_room = await db.rooms.update(
+            data=room_data,
+            id=room.id,
+        )
+        await db.commit()
+        return {"success": True, "updated_data": updated_room}
+    else:
+        raise HTTPException(status_code=404, detail="Номер в отеле не найден")
 
 
 @router.patch("/{room_id}")
 async def update_room_patch(
+        db: DBDep,
         hotel_and_room_id: HotelAndRoomDep,
         room_data: RoomPatch,
 ):
-    async with async_session() as session:
-        room = await RoomRepository(session).get_one_or_none(
-            id=hotel_and_room_id.room_id,
-            hotel_id=hotel_and_room_id.hotel_id,
-        )
+    """
+    Частичное обновление данных о номере (PATCH).
+    :param hotel_and_room_id:
+    :param room_data:
+    :return:
+    """
+    room = await db.rooms.get_one_or_none(
+        id=hotel_and_room_id.room_id,
+        hotel_id=hotel_and_room_id.hotel_id,
+    )
 
-        if room:
-            updated_room = await RoomRepository(session).update(
-                data=room_data,
-                id=room.id,
-                is_patch=True,
-            )
-            await session.commit()
-            return {"success": True, "updated_data": updated_room}
-        else:
-            raise HTTPException(status_code=404, detail="Номер в отеле не найден")
+    if room:
+        updated_room = await db.rooms.update(
+            data=room_data,
+            id=room.id,
+            is_patch=True,
+        )
+        await db.commit()
+        return {"success": True, "updated_data": updated_room}
+    else:
+        raise HTTPException(status_code=404, detail="Номер в отеле не найден")
 
 
 @router.delete("/{room_id}")
 async def delete_room(
-    hotel_and_room_id: HotelAndRoomDep,
+        db: DBDep,
+        hotel_and_room_id: HotelAndRoomDep,
 ):
-    async with async_session() as session:
-        room = await RoomRepository(session).get_one_or_none(
-            id=hotel_and_room_id.room_id,
-            hotel_id=hotel_and_room_id.hotel_id,
-        )
+    """
+    Удаление информации о номере
+    :param hotel_and_room_id:
+    :return:
+    """
+    room = await db.rooms.get_one_or_none(
+        id=hotel_and_room_id.room_id,
+        hotel_id=hotel_and_room_id.hotel_id,
+    )
 
-        if room:
-            deleted_room = await RoomRepository(session).delete(
-                id=room.id,
-            )
-            await session.commit()
-            return {"success": True, "deleted_data": deleted_room}
-        else:
-            raise HTTPException(status_code=404, detail="Номер в отеле не найден")
+    if room:
+        deleted_room = await db.rooms.delete(
+            id=room.id,
+        )
+        await db.commit()
+        return {"success": True, "deleted_data": deleted_room}
+    else:
+        raise HTTPException(status_code=404, detail="Номер в отеле не найден")
