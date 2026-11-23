@@ -3,6 +3,8 @@ from fastapi import Depends, Query, Path, Request, HTTPException
 from pydantic import BaseModel
 
 from src.services.auth import AuthService
+from src.utils.db_manager import DBManager
+from src.database import async_session
 
 
 #  Зависимости для пагинации (отображение определенного кол-ва объектов на одну страницу)
@@ -36,3 +38,17 @@ class HotelAndRoomParams(BaseModel):
     room_id: Annotated[int, Path(gt=0)]
 
 HotelAndRoomDep = Annotated[HotelAndRoomParams, Depends()]
+
+
+# Зависимости для работы с БД. Тут инициализируется класс DBManager, который хэндлит всю работу с БД.
+# Если я правильно понял, то этот класс инициализируется только один раз (т.е. имеет всего один объект).
+# Либо на каждый запрос к БД создается объект этого класса, делает работу и потом после выполнения
+# метода __aexit__ он удаляется. Не уверен как именно это работает
+# и почему тут именно генератор (yield вместо return)? Нужно выяснить!
+async def get_db():
+    async with DBManager(session_factory=async_session) as db:
+        yield db
+
+
+# Зависимость, которая используется для работы с БД внутри эндпоинтов
+DBDep = Annotated[DBManager, Depends(get_db)]
