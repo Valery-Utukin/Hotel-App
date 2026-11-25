@@ -1,6 +1,7 @@
 from src.repositories.users import UserRepository
 from src.repositories.hotels import HotelRepository
 from src.repositories.rooms import RoomRepository
+from src.repositories.bookings import BookingRepository
 
 
 # Класс который хэндлит (ну или будет хэндлить) всю работу с БД на уровне бизнес-логики.
@@ -12,7 +13,7 @@ class DBManager:
     эта фабрика сессий вызывается и создает сессию для данного экземпляра DBManager'а.
     При работе с БД, для фиксации изменений нужно использовать метод commit(). Опять же,
     если я правильно понял: в случае выполнения логики в этом контекстном менеджере, если выполнение
-    прервется (ошибка выполнения или свет погас), то изменения которые яв-ся неконсистентными (ACID)
+    прервется (ошибка выполнения), то изменения которые яв-ся неконсистентными (ACID)
     нужно откатить назад. Для этого при закрытии менеджера (__aexit__) сначала делается rollback,
     а уже потом закрывается соединение с БД. Все изменения, которые нам нужны,
     мы коммитим сами (self.commit).
@@ -33,6 +34,7 @@ class DBManager:
         self.users = UserRepository(self.session)
         self.hotels = HotelRepository(self.session)
         self.rooms = RoomRepository(self.session)
+        self.bookings = BookingRepository(self.session)
 
         # Возвращаем готовый к работе экземпляр
         return self
@@ -45,8 +47,10 @@ class DBManager:
         """
         # Сначала откатываем все несохраненные изменения в БД (rollback)
         # и потом закрываем соединение с базой (close)
-        await self.session.rollback()
-        await self.session.close()
+        try:
+            await self.session.rollback()
+        finally:
+            await self.session.close()
 
     async def commit(self):
         """

@@ -1,4 +1,5 @@
-import jwt
+from jwt import encode, decode, ExpiredSignatureError
+from jwt.exceptions import DecodeError
 from fastapi import HTTPException
 from datetime import datetime, timezone, timedelta
 from passlib.context import CryptContext
@@ -13,7 +14,7 @@ class AuthService:
         to_encode = data.copy()
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         to_encode.update({"exp": expire})
-        encoded_jwt = jwt.encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
+        encoded_jwt = encode(to_encode, settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
         return encoded_jwt
 
     def hash_password(self, password: str) -> str:
@@ -24,7 +25,9 @@ class AuthService:
 
     def decode_token(self, token: str) -> dict:
         try:
-            data = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+            data = decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
             return data
-        except jwt.exceptions.DecodeError:
+        except DecodeError:
             raise HTTPException(status_code=401, detail="Неверный токен")
+        except ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Срок действия токена истек")

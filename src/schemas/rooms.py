@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 
 class RoomRequestAdd(BaseModel):
@@ -27,6 +27,8 @@ class Room(RoomAdd):
     BaseModel -> RoomRequestAdd -> RoomAdd -> Room
     """
     id: int
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class RoomPatch(BaseModel):
