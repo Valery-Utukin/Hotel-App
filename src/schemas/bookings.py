@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -31,5 +31,6 @@ class Booking(BookingAdd):
     """
     id: int
     total_cost: int
+    created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
